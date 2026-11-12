@@ -1,5 +1,16 @@
 # Changelog
 
+## macOS fork (2026-11-13)
+
+- Separate Apple Silicon macOS fork, with upstream attribution and build instructions.
+- Build setup repairs generated tool paths and CMake caches after moving the checkout.
+- User confirmed the game works on Sonoma.
+
+## macOS port (2026-11-12)
+
+- Native Apple Silicon desktop macOS target (Sonoma 14+), bundled SDL2, local `.app` packaging,
+  separate Application Support saves and reproducible build script. Not part of upstream v0.8.0.
+
 ## v0.8.0 (2026-11-11)
 
 - **Picture options on Switch, Android and Linux / Steam Deck.** The settings menu's Display tab now has the PC's

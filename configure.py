@@ -30,8 +30,8 @@ from ninja_syntax import Writer  # noqa: E402
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--target", choices=["host", "switch", "android", "ios"], default="host")
-ap.add_argument("--toolchain", choices=["msvc", "mingw", "linux"],
-                default="linux" if sys.platform.startswith("linux") else "msvc", help="host compiler setup")
+ap.add_argument("--toolchain", choices=["msvc", "mingw", "linux", "macos"],
+                default="macos" if sys.platform == "darwin" else "linux" if sys.platform.startswith("linux") else "msvc", help="host compiler setup")
 ap.add_argument("--cc", default="", help="C compiler command (host, --toolchain linux), e.g. clang or \"zig cc\"")
 ap.add_argument("--cxx", default="", help="C++ compiler command (host, --toolchain linux), e.g. clang++ or \"zig c++\"")
 ap.add_argument("--llvm-mingw", default="", help="llvm-mingw folder (host, --toolchain mingw)")
@@ -71,7 +71,7 @@ if args.target == "ios":
     import ios_build  # noqa: E402
     itools = ios_build.Tools(args, ROOT)
 GEN = "build/gen"
-OUT = "build/%s" % ("host-" + args.toolchain if args.target == "host" and args.toolchain in ("mingw", "linux") else
+OUT = "build/%s" % ("host-" + args.toolchain if args.target == "host" and args.toolchain in ("mingw", "linux", "macos") else
                     "android-" + args.abi if args.target == "android" else args.target)
 py = sys.executable.replace("\\", "/")
 if " " in py:
@@ -209,7 +209,23 @@ with open(os.path.join(ROOT, "build.ninja"), "w") as f:
                 if pred(d):
                     return d
             return ""
-        if args.toolchain == "linux":
+        if args.toolchain == "macos":
+            import subprocess
+            sdl_config = os.path.join(args.sdl, "bin", "sdl2-config") if args.sdl else shutil.which("sdl2-config")
+            if not sdl_config:
+                sys.exit("configure: SDL2 is required (brew install sdl2, or --sdl PREFIX)")
+            sdl_cflags = subprocess.check_output([sdl_config, "--cflags"], text=True).strip()
+            sdl_libs = subprocess.check_output([sdl_config, "--libs"], text=True).strip()
+            sdk = subprocess.check_output(["xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True).strip()
+            arch = '-arch arm64 -mmacosx-version-min=14.0 -isysroot "%s"' % sdk
+            n.variable("cc", args.cc or "/usr/bin/clang")
+            n.variable("cxx", args.cxx or "/usr/bin/clang++")
+            hostinc = "%s -Iruntime/src/platform/apple %s -DSDL_MAIN_HANDLED -DSR_MACOS -DGL_SILENCE_DEPRECATION %s" % (inc, sdl_cflags, arch)
+            n.variable("cflags", "-std=gnu11 -g " + hostinc)
+            n.variable("cxxflags", "-std=c++20 -g " + hostinc)
+            n.variable("ldflags", '-g %s %s -framework OpenGL -framework Cocoa -Wl,-rpath,@executable_path/../Frameworks -Wl,-map,%s/sonicriders.map' % (arch, sdl_libs, OUT))
+            sdl_dll = ""
+        elif args.toolchain == "linux":
             sdl_inc, sdl_lib = linux_sdl()
             cc = args.cc or os.environ.get("CC") or ("clang" if shutil.which("clang") else "gcc")
             cxx = args.cxx or os.environ.get("CXX") or {"clang": "clang++", "gcc": "g++"}.get(cc, "")
@@ -259,7 +275,7 @@ with open(os.path.join(ROOT, "build.ninja"), "w") as f:
             n.variable("cxxflags", "-std=c++20 -g %s -I%s/include -DSDL_MAIN_HANDLED -D_CRT_SECURE_NO_WARNINGS" % (inc, sdl))
             n.variable("ldflags", "-g -fuse-ld=lld -L%s/lib/x64 -lSDL2 -lopengl32 -lwinmm -lws2_32 -lwinhttp -Wl,/MAP:%s/sonicriders.map" % (sdl, OUT))
             sdl_dll = sdl + "/lib/x64/SDL2.dll"
-        exe = OUT + ("/sonicriders" if args.toolchain == "linux" else "/sonicriders.exe")
+        exe = OUT + ("/sonicriders" if args.toolchain in ("linux", "macos") else "/sonicriders.exe")
     elif args.target == "android":
         t = atools
         sdl_inc, sdl_link = android_build.sdl_flags(t, args.abi)

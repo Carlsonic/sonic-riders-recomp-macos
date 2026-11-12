@@ -1161,3 +1161,40 @@ Design: notes/picture-options-port.md. Linux: the WSL run with captures was star
 - Guard: PAST_ART history allow-list from the Heroes repo (a09bbbb, user's request) as 71bcfd2, committed with the
   noreply identity; GitHub's history scan green again (it had failed on old versions of the icons and stick knob).
 - S23: APK v0.8.0-4-g4a24700a installed over USB. Next-session prompts no longer go in STATE.md (user).
+
+
+## 2026-11-12 — Local Apple Silicon desktop port
+
+- Started from c89e1eb; upstream had iOS support but no desktop macOS configure target. Added
+  Clang arm64 / minimum macOS 14, the existing Apple C11 threads shim and OpenGL/Cocoa linkage.
+- Cocoa window creation and SDL polling stay on main; game code still runs on its worker. Request
+  OpenGL 4.1 core/forward-compatible rather than the desktop renderer's 3.3 profile.
+- Genuine pinned SDL2 2.32.10 built locally; bundled dylib uses @rpath and only system frameworks.
+  Setup and packaging scripts verify the player's GXEE8P rev 0 ISO, preserve the original and keep
+  game-derived output ignored. Ad-hoc signed app; saves/settings/mods outside the app.
+- [confirmed] M1, Sonoma 14.8.9: native arm64 build and real OpenGL 4.1 driver; title and Metal City
+  frames inspected using engine captures. Minimized/silent SR_PERFTEST completed both races:
+  1P speed/fps 59.94/59.94, mean game step 1.53 ms; 2P 59.93/59.00, 4.14 ms, 3/1800 steps >16.7 ms.
+  A rebuild was running concurrently: these are smoke-test results, not an isolated benchmark.
+- [confirmed] Full cached setup script completed through extraction/recompilation/build/packaging.
+  App signature verified; LaunchServices (`open`) started the app from a path containing spaces,
+  created Application Support directories, opened real SDL audio output at 32000 Hz and exited
+  at the intentional 15-second watchdog. Audio quality was not assessed by listening.
+- [uncertain] Full story completion, every picture option, controller input and Intel Macs remain
+  untested. This is a local port, not user acceptance or an upstream release. See notes/macos.md.
+
+
+## 2026-11-13 — Standalone macOS fork
+
+- [confirmed, user] Game works on the user's Mac. Moved this checkout out of the independent
+  matching-decomp project into its own directory; original disc and saves preserved.
+- README now leads with the macOS fork, credits teclilla18's upstream project, documents
+  local-only game builds, and keeps upstream release links pointing to upstream.
+- Setup detects relocated Ninja console-script shebangs and refreshes CMake's absolute-path
+  cache before building SDL2. No matching-decomp implementation files were changed.
+- [confirmed] Full relocated setup completed extraction, recompilation, native build and strict
+  app signature verification. Entire inherited Git history and all new source files passed the
+  no-game-data guard. Fork: https://github.com/Carlsonic/sonic-riders-recomp-macos.
+- [confirmed] Relocated app started through LaunchServices on Apple OpenGL 4.1 and exited at
+  the intentional 12-second watchdog. Fixed inherited pre-commit hook executable bit and CRLF
+  shebang for Unix; macOS setup enables the hook for Git checkouts.

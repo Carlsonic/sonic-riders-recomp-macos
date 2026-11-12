@@ -1,3 +1,44 @@
+# Sonic Riders — macOS Apple Silicon fork
+
+Native **Sonic Riders** (GameCube USA, GXEE8P rev 0) on **Apple Silicon Macs running
+macOS 14 Sonoma or newer**, built locally from your own disc image.
+
+This fork adds desktop macOS support to [teclilla18/sonic-riders-recomp](https://github.com/teclilla18/sonic-riders-recomp).
+The original static recompiler, runtime and other platform ports are upstream work;
+this fork contributes the macOS build target, Cocoa main-thread integration and `.app` packaging.
+It is an unofficial fan project. Original credits and license are retained below and in [LICENSE](LICENSE).
+
+## Build on macOS
+
+Install Xcode Command Line Tools (`xcode-select --install`), **Python 3.11+** and **CMake 3.24+**.
+Then, from this checkout:
+
+```sh
+python3 tools/setup_macos.py --iso "/path/to/your/Sonic Riders.iso"
+open "build/macos/Sonic Riders.app"
+```
+
+The setup downloads verified build dependencies, builds native arm64 code, and creates an
+ad-hoc signed app with its own SDL2. It requires no paid Apple developer membership.
+The original ISO is preserved. The resulting app contains your local game data and must
+stay local; **this fork publishes source and build tools only, never the game or a ready-to-play app**.
+
+Saves, settings, mods and the log live in `~/Library/Application Support/Sonic Riders Native/`,
+separate from the app. Move the app freely without moving your saves.
+
+**Controls:** WASD; J/K/L/I = A/B/X/Y; Enter = START; hold F1 for settings.
+
+**Validation:** M1 / Sonoma 14.8.9; automated 1P and split-screen races completed at
+59.94 and 59.00 fps respectively, native graphics and LaunchServices startup checked,
+real 32 kHz audio device initialized. The user also confirmed that the game works.
+Full story completion, every picture option, controllers and Intel Macs have not been validated.
+See [macOS build notes](docs/notes/macos.md) for details and rebuilding.
+
+---
+
+The following documentation describes the upstream project and its other platforms.
+Its release links point to the upstream author's downloads; they are not macOS releases of this fork.
+
 > **Also in the works:** [Sonic Heroes native port](https://github.com/teclilla18/sonic-heroes-recomp)
 
 <p align="center">
@@ -28,12 +69,12 @@ no game files.
 
 ## Get it
 
-| I want to play on... | Download from the [latest release](../../releases/latest) | Guide |
+| I want to play on... | Download from the [latest release](https://github.com/teclilla18/sonic-riders-recomp/releases/latest) | Guide |
 |---|---|---|
 | a **Windows PC** | `SonicRiders-PC-Setup-<version>.zip` | [Install on PC](docs/INSTALL.md#install-on-pc) |
 | a modded **Nintendo Switch** | `SonicRiders-Switch-Setup-<version>.zip` | [Install on Switch](docs/INSTALL.md#install-on-switch) |
 | an **Android phone** (64-bit, Android 11+) | `SonicRiders-Android-Setup-<version>.zip` | [Install on Android](docs/INSTALL.md#install-on-android) |
-| **Linux** or a **Steam Deck** (new, test version) | `SonicRiders-Linux-Setup-<version>.zip` from the [Linux test pre-release](../../releases/tag/v0.5.0-linux-test) | [Install on Linux / Steam Deck](docs/INSTALL.md#install-on-linux--steam-deck) |
+| **Linux** or a **Steam Deck** (new, test version) | `SonicRiders-Linux-Setup-<version>.zip` from the [Linux test pre-release](https://github.com/teclilla18/sonic-riders-recomp/releases/tag/v0.5.0-linux-test) | [Install on Linux / Steam Deck](docs/INSTALL.md#install-on-linux--steam-deck) |
 | an **iPhone** or **iPad** (new; built on a Mac) | `SonicRiders-iOS-Setup-<version>.zip` | [Install on iPhone / iPad](docs/INSTALL.md#install-on-iphone--ipad) |
 
 **In short:** extract the zip, double-click the `Install Sonic Riders` file, pick your disc image, and

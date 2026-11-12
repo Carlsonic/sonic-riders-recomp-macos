@@ -1494,8 +1494,15 @@ static int render_thread(void* arg) {
         SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, g_settings.pad_background ? "1" : "0");
         if (SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0)
             rt_fatal("SDL_InitSubSystem: %s", SDL_GetError());
+#ifdef SR_MACOS
+        /* Apple's desktop core profiles are 3.2 or 4.1, not 3.3. */
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
+#else
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+#endif
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
         /* SR_MINIMIZED: start minimized and without taking focus (unattended test runs) */
         int minimized = getenv("SR_MINIMIZED") != NULL;
@@ -1613,8 +1620,15 @@ void render_start(void) {
     if (!g_headless && SDL_Init(SDL_INIT_AUDIO) != 0)
         rt_fatal("SDL_Init: %s", SDL_GetError());
     input_init();
+#ifndef SR_MACOS
     rt_thread_start(render_thread, NULL);
+#endif
 }
+
+#ifdef SR_MACOS
+/* Cocoa window creation and event pumping must remain on the process main thread. */
+void render_main_loop(void) { render_thread(NULL); }
+#endif
 
 /* ---- minimal PNG writer (stored deflate blocks), for screenshots ---- */
 static uint32_t crc_table[256];

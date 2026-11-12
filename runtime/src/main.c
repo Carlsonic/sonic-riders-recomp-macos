@@ -208,8 +208,8 @@ int main(int argc, char** argv) {
      * this thread only waits */
     profile_start();
     rt_thread_start(game_thread, NULL);
-#ifdef SR_IOS
-    { void render_main_loop(void); render_main_loop(); }  /* never returns (render_vk.c) */
+#if defined(SR_IOS) || defined(SR_MACOS)
+    { void render_main_loop(void); render_main_loop(); }  /* Apple video/event loop stays on main */
 #endif
     for (;;) {
         struct timespec ts = {3600, 0};
