@@ -2,6 +2,7 @@
 # recompiled code, builds, keys, logs, screenshots, personal paths (tools/check_no_game_data.py).
 name: no game data
 on:
+  workflow_dispatch:
   push:
   pull_request:
 permissions:
