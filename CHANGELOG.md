@@ -1,5 +1,13 @@
 # Changelog
 
+## macOS performance fixes (2026-11-13)
+
+- Correct desktop resolution reporting and include graphics options in benchmark records.
+- Set macOS thread QoS; measure OpenGL GPU time without waiting for unfinished queries.
+- Reuse immutable per-frame GPU tables during repeated/interpolated presentations, while
+  preserving changing transforms and restoring the real frame's values.
+- Add diagnostic switches for GPU buffer verification and A/B comparisons.
+
 ## macOS fork (2026-11-13)
 
 - Separate Apple Silicon macOS fork, with upstream attribution and build instructions.

@@ -29,6 +29,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 METRICS = [("speed", "speed", "%.2f"), ("fps", "fps", "%.2f"), ("game_ms_mean", "game ms mean", "%.2f"),
            ("game_ms_p95", "p95", "%.2f"), ("game_ms_max", "max", "%.2f"), ("steps_over_16ms", "steps >16.7ms", "%d")]
 
+OPTIONAL_METRICS = [("gpu_ms_sample_mean", "GPU ms sampled", "%.2f")]
+
 
 def run_pc(exe, timeout):
     out = os.path.join(ROOT, "build", "perftest.json")
@@ -58,8 +60,11 @@ def combine(runs):
            "runs": runs, "summary": {}}
     for scene in first["scenes"]:
         rec["summary"][scene] = {}
-        for key, _, _ in METRICS:
-            vals = [r["scenes"][scene][key] for r in runs if scene in r["scenes"]]
+        for key, _, _ in METRICS + OPTIONAL_METRICS:
+            vals = [r["scenes"][scene][key] for r in runs if scene in r["scenes"]
+                    and key in r["scenes"][scene] and r["scenes"][scene][key] >= 0]
+            if not vals:
+                continue
             rec["summary"][scene][key] = {"mean": sum(vals) / len(vals), "min": min(vals), "max": max(vals)}
     return rec
 
@@ -73,10 +78,12 @@ def table(rec, title):
     print("\n%s: build %s, %s, frame rate %s, resolution %s, %d run(s)" % (
         title, rec["build"], rec["platform"], rec["settings"].get("framerate"), rec["settings"].get("resolution"),
         len(rec["runs"])))
-    print("  %-8s" % "scene" + "".join("%20s" % name for _, name, _ in METRICS))
+    metrics = METRICS + [item for item in OPTIONAL_METRICS
+                         if all(item[0] in m for m in rec["summary"].values())]
+    print("  %-8s" % "scene" + "".join("%20s" % name for _, name, _ in metrics))
     for scene, m in rec["summary"].items():
         cells = []
-        for key, _, fmt in METRICS:
+        for key, _, fmt in metrics:
             v = m[key]
             c = fmt % v["mean"] if key != "steps_over_16ms" else "%.1f" % v["mean"]
             if len(rec["runs"]) > 1:

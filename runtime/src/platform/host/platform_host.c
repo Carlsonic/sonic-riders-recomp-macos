@@ -445,7 +445,12 @@ void rt_thread_start(int (*fn)(void*), void* arg) {
 }
 #endif
 
-double platform_gpu_frame_ms(void) { return -1.0; }  /* not measured by the GL renderer */
+#if !defined(SR_IOS) && !defined(__ANDROID__)
+double render_gl_gpu_frame_ms(void);
+double platform_gpu_frame_ms(void) { return render_gl_gpu_frame_ms(); }
+#else
+double platform_gpu_frame_ms(void) { return -1.0; }
+#endif
 #ifdef __ANDROID__
 /* Android (#14: 50-150 ms game-thread stalls on an Adreno 810 phone, even on the title): the scheduler may park
  * a thread on a little core or behind other work. The threads the runtime pins (game 0, render 1, GP / devices 2,
@@ -538,16 +543,37 @@ void platform_game_step_work(uint64_t work_ns) {
     }
     if (work_ns > 0 && work_ns < 2000000000ull) report(s, (int64_t)work_ns);
 }
-#elif defined(SR_IOS)
-/* iOS: no affinity or nice for apps; quality-of-service classes instead. The pinned runtime threads (game 0,
- * render 1, GP / devices 2) are user-interactive, the watchdog (3) utility; the audio mixer stays
- * user-interactive (SDL's CoreAudio thread is real-time already). */
+#elif defined(SR_IOS) || defined(SR_MACOS)
+/* Apple: use QoS rather than fixed CPU affinity. Preserve iOS classes; macOS
+ * foreground workers are user-initiated, the audio mixer user-interactive, and
+ * diagnostic workers utility (SDL CoreAudio also manages its own output thread). */
 #include <pthread/qos.h>
-void rt_thread_pin(int core) {
-    pthread_set_qos_class_self_np(core == 3 ? QOS_CLASS_UTILITY : QOS_CLASS_USER_INTERACTIVE, 0);
+static void apple_thread_qos(qos_class_t qos) {
+#ifdef SR_MACOS
+    if (getenv("SR_NOQOS")) return;  /* A/B against the previous macOS behavior */
+#endif
+    int err = pthread_set_qos_class_self_np(qos, 0);
+    if (err) rt_log("[thread] cannot set Apple QoS: %d", err);
+#ifdef SR_MACOS
+    if (getenv("SR_QOS_LOG")) {
+        qos_class_t actual = QOS_CLASS_UNSPECIFIED;
+        pthread_get_qos_class_np(pthread_self(), &actual, NULL);
+        rt_log("[thread] Apple QoS requested %u, actual %u", (unsigned)qos, (unsigned)actual);
+    }
+#endif
 }
-void rt_thread_lower_priority(void) { pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0); }
-void rt_thread_raise_priority(void) { pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0); }
+void rt_thread_pin(int core) {
+#ifdef SR_MACOS
+    /* Foreground work, not realtime priority or fixed CPU affinity. Audio's
+     * raise helper promotes only the mixer; background diagnostics stay utility. */
+    apple_thread_qos(core == 3 ? QOS_CLASS_UTILITY : QOS_CLASS_USER_INITIATED);
+#else
+    apple_thread_qos(core == 3 ? QOS_CLASS_UTILITY : QOS_CLASS_USER_INTERACTIVE);
+#endif
+}
+void rt_thread_lower_priority(void) { apple_thread_qos(QOS_CLASS_USER_INITIATED); }
+void rt_thread_raise_priority(void) { apple_thread_qos(QOS_CLASS_USER_INTERACTIVE); }
+
 #else
 void rt_thread_pin(int core) { (void)core; }
 void rt_thread_lower_priority(void) {}

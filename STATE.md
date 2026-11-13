@@ -17,7 +17,15 @@ this fork's changes target macOS. No game data or playable binaries are publishe
   these are smoke-test figures, not an isolated benchmark.
 - **Tested [confirmed]:** full cached setup through packaging; strict app signature;
   LaunchServices startup; real 32 kHz audio device initialized (quality not assessed).
-- **Accepted:** user confirmed the game works (2026-11-13).
+- **Accepted (original port):** user confirmed the game works (2026-11-13).
+- **Performance fixes tested:** desktop resolution metadata, macOS QoS, asynchronous GL
+  GPU queries, and immutable-table reuse. Normal 2x route: 1P 59.91 fps / GPU 13.62 ms,
+  2P 59.34 fps / GPU 14.19 ms (sampled elapsed command time, not pure active GPU work).
+  No established FPS gain from single runs; game speed ~59.94/59.97 steps/s.
+- **Interpolation correctness:** target 120 route completed; 108 GPU-buffer readback
+  checks passed, static-table uploads 10348/13800 (-25%). Diagnostic readbacks stall
+  the GPU: that run is not a performance benchmark or proof of 120 fps in races.
+  Original presentation rate and picture quality remain unchanged.
 - **Relocation [confirmed]:** full setup and signed app packaging passed in the independent
   checkout outside the matching-decomp project. Setup repairs
   moved Ninja shebangs, refreshes CMake cache and regenerates build paths.

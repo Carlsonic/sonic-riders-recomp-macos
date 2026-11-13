@@ -32,7 +32,11 @@
 #define PLATFORM "switch"
 #else
 #define OUT_DEFAULT "build/perftest.json"
+#ifdef SR_MACOS
+#define PLATFORM "macos"
+#else
 #define PLATFORM "pc"
+#endif
 #endif
 
 extern const char g_build_version[];
@@ -45,6 +49,8 @@ typedef struct {
     uint32_t k0, k1;          /* scene frames at the window's ends */
     float work[4096];
     unsigned n;
+    double gpu_sum;
+    unsigned gpu_n;
     int done;
 } Scene;
 
@@ -83,8 +89,15 @@ static void finish(void) {
     FILE* f = fopen(path, "w");
     if (f) {
         fprintf(f, "{\n  \"version\": 1,\n  \"build\": \"%s\",\n  \"platform\": \"%s\",\n", g_build_version, PLATFORM);
+#if !defined(__SWITCH__) && !defined(__ANDROID__) && !defined(SR_IOS)
+        fprintf(f, "  \"settings\": {\"framerate\": \"%s\", \"resolution\": \"%dx (desktop GL)\", "
+                   "\"pc_scale\": %d, \"msaa\": %d, \"pc_fps\": %d, \"aspect\": %.4f},\n  \"scenes\": {\n",
+                settings_framerate_name(g_settings.framerate), g_settings.pc_scale,
+                g_settings.pc_scale, g_settings.msaa, g_settings.pc_fps, settings_display_aspect());
+#else
         fprintf(f, "  \"settings\": {\"framerate\": \"%s\", \"resolution\": \"%s\"},\n  \"scenes\": {\n",
                 settings_framerate_name(g_settings.framerate), settings_resolution_name(g_settings.resolution));
+#endif
     }
     for (int i = 0; i < NSCENES; i++) {
         Scene* s = &g_sc[i];
@@ -101,10 +114,12 @@ static void finish(void) {
         double p50 = s->n ? sorted[s->n / 2] : 0, p95 = s->n ? sorted[s->n * 95 / 100] : 0, mx = s->n ? sorted[s->n - 1] : 0;
         rt_log("[perftest] %s: speed %.2f, %.2f steps/s, %.2f fps; game ms per step: mean %.2f, median %.2f, p95 %.2f, max %.2f; "
                "%u of %u steps over 16.7 ms", k_names[i], speed, steps_s, fps, mean, p50, p95, mx, slow, s->n);
+        rt_log("[perftest] %s: GPU sampled mean %.3f ms (%u observations)",
+               k_names[i], s->gpu_n ? s->gpu_sum / s->gpu_n : -1.0, s->gpu_n);
         if (f)
             fprintf(f, "    \"%s\": {\"speed\": %.3f, \"steps_per_s\": %.3f, \"fps\": %.3f, \"game_ms_mean\": %.3f, \"game_ms_p50\": %.3f, "
-                       "\"game_ms_p95\": %.3f, \"game_ms_max\": %.3f, \"steps_over_16ms\": %u, \"steps\": %u}%s\n",
-                    k_names[i], speed, steps_s, fps, mean, p50, p95, mx, slow, s->n, i + 1 < NSCENES ? "," : "");
+                       "\"game_ms_p95\": %.3f, \"game_ms_max\": %.3f, \"steps_over_16ms\": %u, \"steps\": %u, \"gpu_ms_sample_mean\": %.3f, \"gpu_observations\": %u}%s\n",
+                    k_names[i], speed, steps_s, fps, mean, p50, p95, mx, slow, s->n, s->gpu_n ? s->gpu_sum / s->gpu_n : -1.0, s->gpu_n, i + 1 < NSCENES ? "," : "");
     }
     if (f) {
         fprintf(f, "  }\n}\n");
@@ -139,6 +154,8 @@ void perftest_frame_begin(void) {
         Scene* s = &g_sc[idx];
         if (!s->t0 && key >= WIN_FROM && key < WIN_FROM + 60) { s->t0 = now; s->f0 = gx_frames_presented(); s->k0 = key; }
         else if (s->t0 && key > s->k0) {
+            double gpu = platform_gpu_frame_ms();
+            if (gpu >= 0) { s->gpu_sum += gpu; s->gpu_n++; }
             if (s->n < 4096) s->work[s->n++] = g_end_ns ? (float)((double)(now - g_end_ns) / 1e6) : 0;
             if (key >= s->k0 + WIN_LEN) {
                 s->k1 = key;

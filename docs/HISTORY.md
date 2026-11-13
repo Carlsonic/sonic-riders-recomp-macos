@@ -1198,3 +1198,27 @@ Design: notes/picture-options-port.md. Linux: the WSL run with captures was star
 - [confirmed] Relocated app started through LaunchServices on Apple OpenGL 4.1 and exited at
   the intentional 12-second watchdog. Fixed inherited pre-commit hook executable bit and CRLF
   shebang for Unix; macOS setup enables the hook for Git checkouts.
+
+
+## 2026-11-13 — Desktop performance audit fixes
+
+- Fixed desktop logs/perftest JSON using mobile resolution rather than pc_scale. Previous
+  "1x" JSON was actually 2x GL; records now include scale, MSAA, presentation rate and aspect.
+- Enabled conservative macOS foreground QoS (USER_INITIATED); mixer raise remains
+  USER_INTERACTIVE and diagnostics UTILITY. Requested classes matched actual classes in logs.
+- GL timer: eight pending query slots, availability checked before reading results, skip
+  when full; atomic last-completed GPU value. End before SwapWindow, optional disable.
+- Reuse immutable XF tables for held frames; uniforms/chunks retain interpolation and real-frame
+  restoration. New/recycled game frames invalidate retained data. Debug readback checks real
+  GPU buffer contents, separately from normal performance measurement.
+- [confirmed] Same M1, minimized/silent 640x480 window, 2x EFB: baseline speed/fps 1P
+  58.67/58.15, 2P 59.96/59.46; patched 59.94/59.91, 59.97/59.34. Patched sampled GPU means
+  13.615/14.187 ms. One run each, shader warmup and background activity uncontrolled: no
+  isolated QoS effect or statistically established FPS gain claimed. No concurrent build.
+- [confirmed] Target-120 interpolation route completed both races with 108 sampled GPU buffer
+  checks passing. Latest counters: 13800 executions, 10348 static uploads, 13800 dynamic
+  uploads (-25% static uploads). Interpolation and held-frame snapshots checked. Readbacks
+  stall the GPU, so this route is correctness evidence, not a performance record.
+- [confirmed] Report reader accepts old, new GPU-bearing and unknown-GPU records. New final
+  JSON identifies macOS and 2x/1x MSAA/requested 120/aspect 1.3333 correctly. User settings,
+  original disc and save files unchanged. See notes/macos.md for A/B/debug switches.

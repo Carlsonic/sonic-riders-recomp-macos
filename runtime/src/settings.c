@@ -64,11 +64,18 @@ float settings_wide_k(void) { return g_wide_k; }
 
 /* the log says what was on, at start-up and after each change in the menu (hardware test reports) */
 static void settings_log(const char* when) {
+    const char* resolution = settings_resolution_name(g_settings.resolution);
+#if !defined(__SWITCH__) && !defined(__ANDROID__) && !defined(SR_IOS)
+    char desktop_resolution[48];
+    snprintf(desktop_resolution, sizeof desktop_resolution, "%dx (desktop GL), MSAA %dx",
+             g_settings.pc_scale, g_settings.msaa);
+    resolution = desktop_resolution;
+#endif
     rt_log("[settings] %sscreen: %s (%.3f), HUD %s, field of view %d%%, fps counter %s, resolution %s, frame rate %s, PC pictures %d/s, "
            "sharpness %d%%, pad in background %s, handheld graphics %s, Chaos Emerald gear %s",
            when, settings_screen_name(g_settings.screen), settings_display_aspect(),
            g_settings.screen == SCREEN_FIT ? "at the edges" : g_settings.hud_stretch ? "stretched" : "4:3", g_settings.fov, g_settings.show_fps ? "on" : "off",
-           settings_resolution_name(g_settings.resolution),
+           resolution,
            settings_framerate_name(g_settings.framerate), g_settings.pc_fps,
            g_settings.sharpness, g_settings.pad_background ? "on" : "off", g_settings.handheld_gpu ? "384 MHz" : "system default",
            g_settings.chaos_emerald ? "unlocked" : "as in the save");

@@ -9,6 +9,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <threads.h>
 
@@ -65,6 +66,69 @@ static int wx(int x) { return (int)((float)x * g_wide_k + 0.5f) * EFB_SCALE; }  
 #define DECL(t, n) static t p_##n;
 GLFUNCS(DECL)
 #undef DECL
+
+/* Optional asynchronous GPU timer. Only the GL thread touches query objects; readers
+ * on other threads see the latest completed sample. Full ring => skip, never wait.
+ * End before SwapWindow so display/vsync waits are excluded. */
+#define GPU_QUERY_SLOTS 8
+static PFNGLGENQUERIESPROC q_gen;
+static PFNGLBEGINQUERYPROC q_begin;
+static PFNGLENDQUERYPROC q_end;
+static PFNGLGETQUERYIVPROC q_bits;
+static PFNGLGETQUERYOBJECTIVPROC q_ready;
+static PFNGLGETQUERYOBJECTUI64VPROC q_result;
+static GLuint g_gpu_queries[GPU_QUERY_SLOTS];
+static unsigned g_gpu_read, g_gpu_write, g_gpu_count;
+static int g_gpu_enabled, g_gpu_active;
+static _Atomic uint64_t g_gpu_ns;
+
+double render_gl_gpu_frame_ms(void) {
+    uint64_t ns = atomic_load_explicit(&g_gpu_ns, memory_order_relaxed);
+    return ns ? (double)ns / 1e6 : -1.0;
+}
+
+static void gpu_timer_init(void) {
+    if (getenv("SR_NO_GPU_TIMER")) return;
+#define QLOAD(dst, type, name) if (!(dst = (type)SDL_GL_GetProcAddress(name))) return
+    QLOAD(q_gen, PFNGLGENQUERIESPROC, "glGenQueries");
+    QLOAD(q_begin, PFNGLBEGINQUERYPROC, "glBeginQuery");
+    QLOAD(q_end, PFNGLENDQUERYPROC, "glEndQuery");
+    QLOAD(q_bits, PFNGLGETQUERYIVPROC, "glGetQueryiv");
+    QLOAD(q_ready, PFNGLGETQUERYOBJECTIVPROC, "glGetQueryObjectiv");
+    QLOAD(q_result, PFNGLGETQUERYOBJECTUI64VPROC, "glGetQueryObjectui64v");
+#undef QLOAD
+    GLint bits = 0;
+    q_bits(GL_TIME_ELAPSED, GL_QUERY_COUNTER_BITS, &bits);
+    if (!bits) { rt_log("[gl] GPU timer unavailable"); return; }
+    q_gen(GPU_QUERY_SLOTS, g_gpu_queries);
+    g_gpu_enabled = 1;
+    rt_log("[gl] asynchronous GPU timer: %d bits, %d slots", bits, GPU_QUERY_SLOTS);
+}
+
+static void gpu_timer_begin(void) {
+    if (!g_gpu_enabled) return;
+    while (g_gpu_count) {
+        GLint ready = GL_FALSE;
+        q_ready(g_gpu_queries[g_gpu_read], GL_QUERY_RESULT_AVAILABLE, &ready);
+        if (!ready) break;
+        GLuint64 ns = 0;
+        q_result(g_gpu_queries[g_gpu_read], GL_QUERY_RESULT, &ns);
+        atomic_store_explicit(&g_gpu_ns, ns, memory_order_relaxed);
+        g_gpu_read = (g_gpu_read + 1) % GPU_QUERY_SLOTS;
+        g_gpu_count--;
+    }
+    if (g_gpu_count == GPU_QUERY_SLOTS) return;
+    q_begin(GL_TIME_ELAPSED, g_gpu_queries[g_gpu_write]);
+    g_gpu_active = 1;
+}
+
+static void gpu_timer_end(void) {
+    if (!g_gpu_active) return;
+    q_end(GL_TIME_ELAPSED);
+    g_gpu_active = 0;
+    g_gpu_write = (g_gpu_write + 1) % GPU_QUERY_SLOTS;
+    g_gpu_count++;
+}
 
 static SDL_Window* g_win;
 #define XFM_UNIT 8  /* texture unit of the XF memory chunk pool (a buffer texture) */
@@ -226,6 +290,7 @@ static void gl_setup(void) {
     GLFUNCS(LOAD)
 #undef LOAD
     rt_log("[gl] %s / %s", glGetString(GL_RENDERER), glGetString(GL_VERSION));
+    gpu_timer_init();
     GLuint vs = compile(GL_VERTEX_SHADER, k_gx_vert_glsl), fs = compile(GL_FRAGMENT_SHADER, k_gx_frag_glsl);
     g_prog = p_glCreateProgram();
     p_glAttachShader(g_prog, vs);
@@ -524,6 +589,7 @@ static void efb_copy(const GxCmd* c, const GxUniforms* u) {
                 p_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
                 p_glBlitFramebuffer(0, 0, ww, wh, 0, 0, ww, wh, GL_COLOR_BUFFER_BIT, GL_NEAREST);
             }
+            gpu_timer_end();
             SDL_GL_SwapWindow(g_win);
         presented:;
         }
@@ -957,7 +1023,46 @@ static void ip_states(uint8_t* staging, size_t stride) {
 }
 
 static GxFrame* g_up_frame;  /* whose vertices and indices the buffers hold (in-between pictures reuse them) */
+/* Diagnostic only: verify retained GPU buffers against the current source frame,
+ * including interpolated/restored values. Readback is intentionally absent in play. */
+static void verify_upload(GLenum target, GLuint buffer, const void* expected, size_t stride,
+                          size_t item_size, uint32_t count) {
+    if (!count) return;
+    size_t size = stride * count;
+    uint8_t* actual = malloc(size);
+    PFNGLGETBUFFERSUBDATAPROC readback = (PFNGLGETBUFFERSUBDATAPROC)SDL_GL_GetProcAddress("glGetBufferSubData");
+    if (!actual || !readback) rt_fatal("GL upload verification unavailable");
+    p_glBindBuffer(target, buffer);
+    readback(target, 0, (GLsizeiptr)size, actual);
+    for (uint32_t i = 0; i < count; i++)
+        if (memcmp(actual + stride * i, (const uint8_t*)expected + stride * i, item_size))
+            rt_fatal("GL upload mismatch: buffer %u item %u", buffer, i);
+    free(actual);
+}
+
+static int g_up_interpolated;
+static uint64_t g_upload_calls, g_upload_xt, g_upload_dynamic;
 static void execute(GxFrame* f) {
+    gpu_timer_begin();
+    static int cache = -1, stats, verify;
+    if (cache < 0) {
+        const char* e = getenv("SR_GL_UPLOAD_CACHE");
+        cache = !e || strcmp(e, "0");
+        stats = getenv("SR_GL_UPLOAD_STATS") != NULL;
+        verify = getenv("SR_GL_VERIFY_UPLOADS") != NULL;
+    }
+    /* Frame pointers are recycled: g_up_frame is explicitly invalidated on each
+     * incoming game frame. Interpolated UBOs/chunks must be restored afterwards. */
+    int fresh = f != g_up_frame;
+    int upload_static = fresh || !cache;
+    int upload_dynamic = upload_static || g_ip_on || g_up_interpolated;
+    g_upload_calls++;
+    g_upload_xt += upload_static;
+    g_upload_dynamic += upload_dynamic;
+    if (stats && g_upload_calls % 600 == 0)
+        rt_log("[gl] uploads: %llu executions, %llu static tables, %llu dynamic tables",
+               (unsigned long long)g_upload_calls, (unsigned long long)g_upload_xt,
+               (unsigned long long)g_upload_dynamic);
     g_wide_k = f->wide_k >= 1.0f ? f->wide_k : 1.0f;
     g_in_race = f->in_race;
     {   /* SR_SCALE_AT=<frame>:<scale>[:<msaa>]: change them at that presented frame, as the F1 menu does (tests) */
@@ -1005,29 +1110,53 @@ static void execute(GxFrame* f) {
     size_t stride = (sizeof(GxUniforms) + (size_t)g_ubo_align - 1) / (size_t)g_ubo_align * (size_t)g_ubo_align;
     /* the states, packed at the UBO offset alignment, in one upload */
     size_t ubo_bytes = stride * (f->nunis ? f->nunis : 1);
-    if (ubo_bytes > g_ubo_staging_cap) {
-        g_ubo_staging = realloc(g_ubo_staging, ubo_bytes);
-        g_ubo_staging_cap = ubo_bytes;
+    if (upload_dynamic) {
+        if (ubo_bytes > g_ubo_staging_cap) {
+            g_ubo_staging = realloc(g_ubo_staging, ubo_bytes);
+            g_ubo_staging_cap = ubo_bytes;
+        }
+        for (uint32_t i = 0; i < f->nunis; i++) memcpy(g_ubo_staging + stride * i, &f->unis[i], sizeof(GxUniforms));
+        if (g_ip_on) ip_states(g_ubo_staging, stride);
+        p_glBindBuffer(GL_UNIFORM_BUFFER, g_ubo);
+        p_glBufferData(GL_UNIFORM_BUFFER, (GLsizeiptr)ubo_bytes, g_ubo_staging, GL_STREAM_DRAW);
     }
-    for (uint32_t i = 0; i < f->nunis; i++) memcpy(g_ubo_staging + stride * i, &f->unis[i], sizeof(GxUniforms));
-    if (g_ip_on) ip_states(g_ubo_staging, stride);
-    p_glBindBuffer(GL_UNIFORM_BUFFER, g_ubo);
-    p_glBufferData(GL_UNIFORM_BUFFER, (GLsizeiptr)ubo_bytes, g_ubo_staging, GL_STREAM_DRAW);
     /* the chunk tables, likewise */
     size_t xstride = (sizeof(GxXTab) + (size_t)g_ubo_align - 1) / (size_t)g_ubo_align * (size_t)g_ubo_align;
     size_t xt_bytes = xstride * (f->nxtabs ? f->nxtabs : 1);
-    if (xt_bytes > g_ubo_staging_cap) {
-        g_ubo_staging = realloc(g_ubo_staging, xt_bytes);
-        g_ubo_staging_cap = xt_bytes;
+    if (upload_static) {
+        if (xt_bytes > g_ubo_staging_cap) {
+            g_ubo_staging = realloc(g_ubo_staging, xt_bytes);
+            g_ubo_staging_cap = xt_bytes;
+        }
+        for (uint32_t i = 0; i < f->nxtabs; i++) memcpy(g_ubo_staging + xstride * i, &f->xtabs[i], sizeof(GxXTab));
+        p_glBindBuffer(GL_UNIFORM_BUFFER, g_ubo_xt);
+        p_glBufferData(GL_UNIFORM_BUFFER, (GLsizeiptr)xt_bytes, g_ubo_staging, GL_STREAM_DRAW);
     }
-    for (uint32_t i = 0; i < f->nxtabs; i++) memcpy(g_ubo_staging + xstride * i, &f->xtabs[i], sizeof(GxXTab));
-    p_glBindBuffer(GL_UNIFORM_BUFFER, g_ubo_xt);
-    p_glBufferData(GL_UNIFORM_BUFFER, (GLsizeiptr)xt_bytes, g_ubo_staging, GL_STREAM_DRAW);
     const GxXTab* curx = NULL;
     uint32_t cur_regs = ~0u;
     /* the XF memory chunk pool */
     p_glBindBuffer(0x8C2A /* GL_TEXTURE_BUFFER */, g_xfm_buf);
-    p_glBufferData(0x8C2A, (GLsizeiptr)(f->nxchunks ? f->nxchunks : 1) * GX_XFM_CHUNK * 4, g_ip_on ? ip_chunks(f) : f->xchunks, GL_STREAM_DRAW);
+    if (upload_dynamic) {
+        p_glBufferData(0x8C2A, (GLsizeiptr)(f->nxchunks ? f->nxchunks : 1) * GX_XFM_CHUNK * 4, g_ip_on ? ip_chunks(f) : f->xchunks, GL_STREAM_DRAW);
+    }
+    g_up_interpolated = g_ip_on;
+    if (verify && g_upload_calls % 127 == 0) {
+        uint8_t* expected = calloc(f->nunis ? f->nunis : 1, stride);
+        if (!expected) rt_fatal("GL upload verification allocation failed");
+        for (uint32_t i = 0; i < f->nunis; i++) memcpy(expected + stride * i, &f->unis[i], sizeof(GxUniforms));
+        if (g_ip_on) ip_states(expected, stride);
+        verify_upload(GL_UNIFORM_BUFFER, g_ubo, expected, stride, sizeof(GxUniforms), f->nunis);
+        free(expected);
+        expected = calloc(f->nxtabs ? f->nxtabs : 1, xstride);
+        if (!expected) rt_fatal("GL upload verification allocation failed");
+        for (uint32_t i = 0; i < f->nxtabs; i++) memcpy(expected + xstride * i, &f->xtabs[i], sizeof(GxXTab));
+        verify_upload(GL_UNIFORM_BUFFER, g_ubo_xt, expected, xstride, sizeof(GxXTab), f->nxtabs);
+        free(expected);
+        verify_upload(0x8C2A, g_xfm_buf, g_ip_on ? ip_chunks(f) : f->xchunks,
+                      GX_XFM_CHUNK * 4, GX_XFM_CHUNK * 4, f->nxchunks);
+        rt_log("[gl] upload verification passed: execution %llu, interpolated %d, fresh %d",
+               (unsigned long long)g_upload_calls, g_ip_on, fresh);
+    }
     p_glActiveTexture(GL_TEXTURE0 + XFM_UNIT);
     glBindTexture(0x8C2A, g_xfm_tex);
     p_glTexBuffer(0x8C2A, 0x8236 /* GL_R32UI */, g_xfm_buf);
@@ -1273,6 +1402,7 @@ static void execute(GxFrame* f) {
         default: break;
         }
     }
+    gpu_timer_end();
 }
 
 /* the textures the game dropped after this frame (once the frame is not drawn again) */

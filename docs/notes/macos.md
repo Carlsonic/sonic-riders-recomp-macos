@@ -60,3 +60,36 @@ Use `SR_MINIMIZED=1 SR_NOAUDIO=1 SR_PERFTEST=1` for unattended graphics tests; u
 bundled executable and pass its `Contents/Resources/game.iso` explicitly when bypassing
 LaunchGame. The automatic route uses a temporary memory card in RAM. Captures are
 `build/shot_N.png` relative to the working directory (`SR_SCREENSHOT=N`).
+
+## OpenGL performance fixes (2026-11-13)
+
+- Desktop logs and performance JSON use `pc_scale`, not the mobile `resolution` field.
+  The previous JSON's "1x (640x528)" label was misleading: default desktop GL actually
+  used 2x (1280x1056 at 4:3). JSON also records MSAA, requested presentation rate and aspect.
+  The default picture quality and user settings are unchanged.
+- macOS foreground worker threads request USER_INITIATED QoS, the audio mixer's raise
+  helper requests USER_INTERACTIVE, and diagnostic workers use UTILITY. No fixed CPU
+  affinity or realtime scheduling is imposed. `SR_NOQOS=1` restores the old macOS
+  no-op helpers for A/B testing; `SR_QOS_LOG=1` reports requested and actual QoS classes.
+- Optional GL timer queries use an eight-slot ring. Only available results are read;
+  a full ring skips measurement, never waits. Queries end before SwapWindow. The value
+  measures elapsed GPU command time (including stalls, not just active shader work),
+  excluding the swap/display wait. Unsupported drivers report unknown. `SR_NO_GPU_TIMER=1`
+  disables measurement. Other threads read an atomic last-completed sample.
+- Performance JSON records `gpu_ms_sample_mean` and `gpu_observations`: latest completed
+  GPU samples observed at game steps, not necessarily distinct samples or exact frame pairs.
+  Unknown is -1 with zero observations. `tools/perf_test.py show` displays GPU values when
+  available and can still load old records without them.
+- Repeated presentations of a held frame reuse immutable XF tables and, when unchanged,
+  uniforms and transform chunks. Interpolated values are uploaded each time and the
+  original values restored on the real frame. Frame recycling invalidates the cache.
+  `SR_GL_UPLOAD_CACHE=0` disables reuse; `SR_GL_UPLOAD_STATS=1` reports upload counts.
+- `SR_GL_VERIFY_UPLOADS=1` occasionally reads actual GPU buffers and compares them against
+  the current source/interpolated state, aborting on mismatch. This intentionally stalls
+  the GPU and is a correctness diagnostic, not a performance measurement mode.
+
+Validation of the performance fixes: normal 2x route completed both races at 59.91 / 59.34 fps;
+GPU sampled means 13.615 / 14.187 ms. Target-120 diagnostic route completed with 108 buffer
+checks passing; 10348 static-table uploads for 13800 executions (25% fewer). Its readbacks
+intentionally stall the GPU, and its race frame rate is not proof of sustained 120 fps.
+One baseline/patched run each cannot establish an isolated QoS benefit or general FPS gain.
