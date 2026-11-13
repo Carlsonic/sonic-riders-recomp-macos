@@ -39,6 +39,18 @@ Output: `build/macos/Sonic Riders.app`. Details: docs/notes/macos.md.
 Dated evidence and upstream history: docs/HISTORY.md.
 Machine-specific paths and logs: ignored NOTES.local.md.
 
+## High-resolution limitation
+
+- M1 / 16:10 / window 1280x800: full graphics 2x ~43-45 fps, 3x ~25 fps.
+  3x allocation is 2304x1584; it is not a Full HD preset. GPU command interval
+  ~40 ms; game work ~1-2 ms. Same slowdown remains with timer and interpolation off.
+- Flat-fragment diagnostic at 3x: ~59-60 fps / ~3.7 ms GPU, with altered appearance
+  and pixel coverage. This is diagnostic only, not the playable app or a promised gain.
+- GL shader/embedding sources still match upstream. Material-specific GL shaders
+  and hitch analysis are the main remaining optimization work; cross-platform cost unmeasured.
+- GPU timing is opt-in for normal play (SR_GPU_TIMER=1), automatic in performance tests.
+  Resolution UI now accounts for wide formats. Details and five-case table: notes/macos.md.
+
 ## Next work
 
 Keep macOS changes distinct from upstream; validate controllers and more play routes.

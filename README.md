@@ -32,6 +32,8 @@ separate from the app. Move the app freely without moving your saves.
 59.94 and 59.00 fps respectively, native graphics and LaunchServices startup checked,
 real 32 kHz audio device initialized. The user also confirmed that the game works.
 Full story completion, every picture option, controllers and Intel Macs have not been validated.
+Widescreen/high-resolution rendering is currently GPU-heavy on M1: the 16:10 test measured
+about 25 fps at 3x. See the [high-resolution investigation](docs/notes/macos.md#high-resolution-investigation-2026-11-13).
 See [macOS build notes](docs/notes/macos.md) for details and rebuilding.
 
 ---

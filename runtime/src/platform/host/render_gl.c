@@ -88,7 +88,10 @@ double render_gl_gpu_frame_ms(void) {
 }
 
 static void gpu_timer_init(void) {
-    if (getenv("SR_NO_GPU_TIMER")) return;
+    /* Keep query submission/polling out of normal play. Performance tests opt in
+     * automatically; explicit SR_GPU_TIMER overrides that default. */
+    const char* request = getenv("SR_GPU_TIMER");
+    if (getenv("SR_NO_GPU_TIMER") || (request ? !atoi(request) : !getenv("SR_PERFTEST"))) return;
 #define QLOAD(dst, type, name) if (!(dst = (type)SDL_GL_GetProcAddress(name))) return
     QLOAD(q_gen, PFNGLGENQUERIESPROC, "glGenQueries");
     QLOAD(q_begin, PFNGLBEGINQUERYPROC, "glBeginQuery");

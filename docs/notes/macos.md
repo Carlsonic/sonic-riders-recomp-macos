@@ -93,3 +93,47 @@ GPU sampled means 13.615 / 14.187 ms. Target-120 diagnostic route completed with
 checks passing; 10348 static-table uploads for 13800 executions (25% fewer). Its readbacks
 intentionally stall the GPU, and its race frame rate is not proof of sustained 120 fps.
 One baseline/patched run each cannot establish an isolated QoS benefit or general FPS gain.
+
+## High-resolution investigation (2026-11-13)
+
+[confirmed] M1, same minimized 1280x800 window, Fit window (16:10), MSAA 1x, fresh RAM card,
+silent automatic 1P/2P demos; one serial run per case, no concurrent build or other game process
+observed. The test checkout used default picture options. These results differ from the earlier
+4:3 / 640x480 smoke tests because screen shape, visible scene and presentation size differ.
+
+| Case | 1P fps | 2P fps | 1P GPU ms | 2P GPU ms |
+|---|---:|---:|---:|---:|
+| 2x, original pictures | 43.39 | 45.33 | 18.84 | 18.11 |
+| 3x, original pictures | 25.08 | 24.90 | 40.22 | 40.82 |
+| 3x, requested 120 | 26.61 | 25.17 | 37.95 | 40.53 |
+| 3x, flat diagnostic | 58.67 | 59.91 | 3.75 | 3.67 |
+| 3x, GPU timer disabled | 26.06 | 26.74 | unknown | unknown |
+
+GPU ms is the sampled elapsed GL command interval, not pure active shader time. Single runs
+and uncontrolled background activity cannot establish small differences between cases.
+
+- Actual EFB allocations were 1536x1056 at 2x and 2304x1584 at 3x. The latter is 3.65 million
+  pixels, rather than Full HD's 2.07 million; 2x -> 3x multiplies buffer area by 2.25. These
+  are intermediate allocations: viewport/scissor and final window size remain distinct.
+- With full graphics, GPU command time rose roughly 2.1-2.3x while game-thread work stayed
+  around 1-2 ms per step. Game simulation stayed near 60 steps/s while pictures dropped.
+  The severe 3x slowdown remains with interpolation and GPU timing both disabled.
+- The separate flat diagnostic replaced only the fragment shader with vertex-colour output,
+  retaining the guest/game code, geometry submission and renderer. It removes texture/TEV,
+  fog and alpha-test work and changes pixel coverage/appearance. Its speed is diagnostic
+  evidence about the graphics path, not an achievable full-graphics performance claim.
+  This binary stays ignored/local and is never packaged as the game.
+- Shared shader sources and tools/embed_shaders.py match upstream c89e1eb unchanged. Desktop
+  GL uses the universal fragment program, including dynamic TEV control and optional paths;
+  the existing specialized shader infrastructure is used by other backends. This inherited
+  architecture is the next optimization target. Mac driver contribution is not isolated;
+  these results are not measurements of Windows/Linux or other GPUs.
+- GPU queries now run only when SR_GPU_TIMER=1 or in SR_PERFTEST. SR_GPU_TIMER=0 and
+  SR_NO_GPU_TIMER=1 disable them. Normal play submits no timer queries. This keeps diagnostic
+  work out of ordinary play; the disabled-timer control still ran only ~26-27 fps at 3x.
+- Resolution labels in the desktop settings now include the actual widescreen width and
+  explain the quadratic pixel cost, instead of suggesting universal monitor-resolution presets.
+
+The supported graphics remain intact. Substantial full-graphics acceleration is still pending:
+reuse the project's material-specific shader generation in desktop GL and validate output
+against the universal program. Measure compilation/prewarm hitches and transparent passes too.

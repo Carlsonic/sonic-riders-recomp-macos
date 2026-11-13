@@ -414,11 +414,12 @@ void tab_display() {
     heading("Resolution");
     {
         char fmt[48];
-        snprintf(fmt, sizeof fmt, "%%dx  (%dx%d)", 640 * g_settings.pc_scale, 528 * g_settings.pc_scale);
+        int render_width = (int)(640.0f * settings_wide_k() + 0.5f) * g_settings.pc_scale;
+        snprintf(fmt, sizeof fmt, "%%dx  (%dx%d)", render_width, 528 * g_settings.pc_scale);
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
         ImGui::SliderInt("##pcscale", &g_settings.pc_scale, PC_SCALE_MIN, PC_SCALE_MAX, fmt);
-        help("The size the game is drawn at, in times the GameCube's 640x528. 2x was the only choice before. "
-             "Higher is sharper and needs a stronger graphics card; 3x suits 1440p, 4x suits 4K (the most).");
+        help("Internal render size, scaled to your window. Width follows the selected screen format. "
+             "3x renders 2.25 times as many pixels as 2x; higher settings need more GPU time.");
         if (ImGui::IsItemDeactivatedAfterEdit()) settings_apply();
     }
 #endif

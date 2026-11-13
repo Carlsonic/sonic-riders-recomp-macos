@@ -1,5 +1,12 @@
 # Changelog
 
+## High-resolution diagnostics (2026-11-13)
+
+- Show the actual widescreen render dimensions in settings and explain scaling cost.
+- Keep GPU timer queries out of normal play; enable with SR_GPU_TIMER=1 or performance tests.
+- Document the reproduced M1 high-resolution bottleneck and controlled shader experiment.
+  A full-graphics high-resolution performance fix is still pending.
+
 ## macOS performance fixes (2026-11-13)
 
 - Correct desktop resolution reporting and include graphics options in benchmark records.

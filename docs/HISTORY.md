@@ -1222,3 +1222,20 @@ Design: notes/picture-options-port.md. Linux: the WSL run with captures was star
 - [confirmed] Report reader accepts old, new GPU-bearing and unknown-GPU records. New final
   JSON identifies macOS and 2x/1x MSAA/requested 120/aspect 1.3333 correctly. User settings,
   original disc and save files unchanged. See notes/macos.md for A/B/debug switches.
+
+
+## 2026-11-13 — Reproduced high-resolution slowdown
+
+- [confirmed] Serial 16:10 scaling/interpolation/timer controls and separate flat-fragment
+  diagnostic, same M1 and window. Full 3x ~25 fps with ~40 ms GPU command intervals;
+  timer-disabled ~26-27 fps; flat diagnostic ~59-60 fps with ~3.7 ms. CPU game steps ~1-2 ms.
+  See notes/macos.md for conditions, exact table, pixel-coverage caveat and interpretation.
+- [confirmed] Shader sources/embedding unchanged from c89e1eb; universal desktop GL shader
+  remains a major inherited cost. Other-platform performance and driver cost not measured.
+- Normal play no longer submits GPU timer queries; profiling opt-in and benchmark timing
+  retained. Fixed resolution UI width for wide screens and removed monitor-preset hints.
+- Full-graphics shader optimization remains pending. Diagnostic executable stays local and
+  is not the packaged app. No user preferences, original disc or user saves changed.
+- [confirmed] Settings inspected through an engine capture: Fit window at 16:10 shows
+  3x (2304x1584). Normal launch omits GPU queries; profile launch enables them. Both
+  smoke tests ended at intentional 8-second watchdogs using an isolated test card.
